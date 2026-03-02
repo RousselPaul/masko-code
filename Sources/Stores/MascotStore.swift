@@ -30,7 +30,7 @@ final class MascotStore {
         PresetInfo(slug: "madame-patate", filename: "madame-patate", emoji: "🥔"),
         PresetInfo(slug: "otto", filename: "otto", emoji: "🐙"),
         PresetInfo(slug: "cupidon", filename: "cupidon", emoji: "💘"),
-        PresetInfo(slug: "spark", filename: "spark", emoji: "⚡"),
+        PresetInfo(slug: "masko", filename: "masko", emoji: "⚡"),
         PresetInfo(slug: "rusty", filename: "rusty", emoji: "🤖"),
     ]
 
