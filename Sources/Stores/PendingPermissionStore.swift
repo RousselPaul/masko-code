@@ -330,6 +330,12 @@ final class PendingPermissionStore {
     private(set) var collapsed: Set<UUID> = []
     /// Called when a permission is resolved — used to update notification outcome
     var onResolved: ((ClaudeEvent, ResolutionOutcome) -> Void)?
+    /// Called when pending permissions change — used to resize/reposition the overlay panel
+    var onPendingChange: (() -> Void)?
+    /// Secondary callback for pending changes — used by hotkey manager (avoids overwriting primary)
+    var onPendingCountChange: (() -> Void)?
+    /// Called by views when a text-input option is selected — activates the app + makes overlay key window
+    var onRequestTextInputFocus: (() -> Void)?
 
     init() {
         startLivenessChecks()
@@ -345,6 +351,8 @@ final class PendingPermissionStore {
             receivedAt: Date()
         )
         pending.append(permission)
+        onPendingChange?()
+        onPendingCountChange?()
 
         // Monitor connection — if the hook script exits (user answered in terminal),
         // the receive completes and we auto-dismiss without sending a response.
@@ -438,6 +446,8 @@ final class PendingPermissionStore {
 
         collapsed.remove(id)
         pending.remove(at: index)
+        onPendingChange?()
+        onPendingCountChange?()
         onResolved?(permission.event, .unknown)
         print("[masko-desktop] Permission auto-dismissed (answered from terminal): \(permission.toolName) (remaining: \(pending.count))")
     }
@@ -456,6 +466,8 @@ final class PendingPermissionStore {
         })
 
         pending.remove(at: index)
+        onPendingChange?()
+        onPendingCountChange?()
         let outcome: ResolutionOutcome = isExpired ? .expired : (decision == .allow ? .allowed : .denied)
         onResolved?(permission.event, outcome)
         print("[masko-desktop] Permission resolved: \(decision) for \(permission.toolName) (remaining: \(pending.count))")
@@ -497,6 +509,8 @@ final class PendingPermissionStore {
         }
 
         pending.remove(at: index)
+        onPendingChange?()
+        onPendingCountChange?()
         onResolved?(permission.event, .allowed)
         print("[masko-desktop] Permission resolved with answers for \(permission.toolName) (remaining: \(pending.count))")
     }
@@ -535,6 +549,8 @@ final class PendingPermissionStore {
         }
 
         pending.remove(at: index)
+        onPendingChange?()
+        onPendingCountChange?()
         onResolved?(permission.event, .allowed)
         print("[masko-desktop] Permission resolved with feedback for \(permission.toolName) (remaining: \(pending.count))")
     }
@@ -566,6 +582,8 @@ final class PendingPermissionStore {
         }
 
         pending.remove(at: index)
+        onPendingChange?()
+        onPendingCountChange?()
         onResolved?(permission.event, .allowed)
         print("[masko-desktop] Permission resolved with \(suggestions.count) always-allow rules for \(permission.toolName) (remaining: \(pending.count))")
     }

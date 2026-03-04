@@ -71,6 +71,44 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack {
+                    Text("Global Shortcuts")
+                        .foregroundColor(Constants.textPrimary)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(appStore.hotkeyManager.isActive ? Color.green : Color.gray.opacity(0.4))
+                            .frame(width: 8, height: 8)
+                        Text(appStore.hotkeyManager.isActive ? "Active" : "Needs Accessibility")
+                            .foregroundColor(Constants.textMuted)
+                    }
+                }
+
+                HStack {
+                    Text("Focus Toggle")
+                        .foregroundColor(Constants.textPrimary)
+                    Spacer()
+                    ShortcutRecorderView(hotkeyManager: appStore.hotkeyManager)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    shortcutRow("⌘1-9", "Accept Nth pending permission")
+                    shortcutRow("Hold ⌘", "Show numbered badges on permissions")
+                }
+                .padding(.vertical, 2)
+
+                if !appStore.hotkeyManager.isActive {
+                    Button("Grant Accessibility Permission") {
+                        appStore.hotkeyManager.requestAccessibilityPermission()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(Constants.orangePrimary)
+                }
+            } header: {
+                Text("Keyboard Shortcuts").font(Constants.heading(size: 13, weight: .semibold))
+            }
+
+            Section {
                 // Per-IDE status list
                 ForEach(ideStatuses) { ide in
                     HStack {
@@ -411,4 +449,87 @@ struct SettingsView: View {
             NSApplication.shared.terminate(nil)
         }
     }
+
+    private func shortcutRow(_ shortcut: String, _ description: String) -> some View {
+        HStack(spacing: 8) {
+            Text(shortcut)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(Constants.textPrimary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Constants.textMuted.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            Text(description)
+                .font(.system(size: 11))
+                .foregroundColor(Constants.textMuted)
+        }
+    }
+}
+
+// MARK: - Shortcut Recorder
+
+/// A clickable view that records a keyboard shortcut when focused.
+struct ShortcutRecorderView: View {
+    var hotkeyManager: GlobalHotkeyManager
+    @State private var isRecording = false
+
+    var body: some View {
+        Button {
+            isRecording.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                if isRecording {
+                    Text("Press shortcut...")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Constants.orangePrimary)
+                } else {
+                    Text(hotkeyManager.shortcutLabel)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Constants.textPrimary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isRecording ? Constants.orangePrimary.opacity(0.08) : Constants.textMuted.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isRecording ? Constants.orangePrimary.opacity(0.4) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onKeyPress { press in
+            guard isRecording else { return .ignored }
+
+            // Build CGEventFlags from SwiftUI modifiers
+            var flags: CGEventFlags = []
+            if press.modifiers.contains(.command) { flags.insert(.maskCommand) }
+            if press.modifiers.contains(.shift) { flags.insert(.maskShift) }
+            if press.modifiers.contains(.control) { flags.insert(.maskControl) }
+            if press.modifiers.contains(.option) { flags.insert(.maskAlternate) }
+
+            // Require at least one modifier
+            guard !flags.isEmpty else { return .ignored }
+
+            // Map character to key code
+            if let keyCode = characterToKeyCode(press.characters) {
+                hotkeyManager.setShortcut(keyCode: keyCode, modifiers: flags)
+                isRecording = false
+                return .handled
+            }
+            return .ignored
+        }
+    }
+}
+
+/// Map a character string to a macOS key code.
+private func characterToKeyCode(_ char: String) -> Int64? {
+    let map: [String: Int64] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
+        "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
+        "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
+        "5": 23, "9": 25, "7": 26, "8": 28, "0": 29, "o": 31, "u": 32,
+        "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+    ]
+    return map[char.lowercased()]
 }

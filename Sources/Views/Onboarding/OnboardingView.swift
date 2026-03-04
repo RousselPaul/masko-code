@@ -1,4 +1,5 @@
 import SwiftUI
+import ApplicationServices
 
 struct OnboardingView: View {
     @Environment(AppStore.self) var appStore
@@ -11,20 +12,23 @@ struct OnboardingView: View {
     @State private var hookError: String?
     @State private var ideExtensionInstalled = false
     @State private var ideExtensionError: String?
+    @State private var accessibilityGranted = false
     @State private var mascotActivated = false
     @State private var selectedPresetSlug: String? = nil
     @State private var isLoadingPreset = false
 
-    private let totalSteps = 5
+    private let totalSteps = 6
 
     /// Advance to the next step that actually needs user action, skipping already-completed ones.
     private func nextStep(after current: Int) {
         var next = current + 1
         // Skip hooks step if already installed
         if next == 1 && hookInstalled { next = 2 }
+        // Skip accessibility step if already granted
+        if next == 3 && AXIsProcessTrusted() { next = 4 }
         // Skip IDE step if no IDE detected
-        if next == 3 && ExtensionInstaller.availableIDEs().isEmpty { next = 4 }
-        // Step 2 (notifications) and 4 (mascot) always show
+        if next == 4 && ExtensionInstaller.availableIDEs().isEmpty { next = 5 }
+        // Step 2 (notifications) and 5 (mascot) always show
         step = min(next, totalSteps - 1)
     }
 
@@ -37,8 +41,9 @@ struct OnboardingView: View {
                 case 0: welcomeStep
                 case 1: hooksStep
                 case 2: notificationsStep
-                case 3: ideIntegrationStep
-                case 4: mascotStep
+                case 3: accessibilityStep
+                case 4: ideIntegrationStep
+                case 5: mascotStep
                 default: EmptyView()
                 }
             }
@@ -63,6 +68,7 @@ struct OnboardingView: View {
         .animation(.easeInOut(duration: 0.3), value: step)
         .onAppear {
             hookInstalled = HookInstaller.isRegistered()
+            accessibilityGranted = AXIsProcessTrusted()
         }
     }
 
@@ -179,7 +185,49 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 3: IDE Integration (optional)
+    // MARK: - Step 3: Accessibility (Keyboard Shortcuts)
+
+    private var accessibilityStep: some View {
+        VStack(spacing: 20) {
+            stepIcon(accessibilityGranted ? "checkmark.circle.fill" : "keyboard.fill",
+                     color: accessibilityGranted ? .green : Constants.orangePrimary)
+
+            VStack(spacing: 8) {
+                Text("Keyboard shortcuts")
+                    .font(Constants.heading(size: 24, weight: .bold))
+                    .foregroundStyle(Constants.textPrimary)
+
+                Text("Accept permissions with \u{2318}1, toggle focus with \u{2318}\u{21E7}M \u{2014} without switching windows.")
+                    .font(Constants.body(size: 14))
+                    .foregroundStyle(Constants.textMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 20)
+            }
+
+            if accessibilityGranted {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Accessibility enabled")
+                        .font(Constants.body(size: 14, weight: .medium))
+                        .foregroundStyle(.green)
+                }
+
+                primaryButton("Continue") {
+                    nextStep(after: 3)
+                }
+            } else {
+                primaryButton("Enable Shortcuts") {
+                    enableAccessibility()
+                }
+
+                skipButton { nextStep(after: 3) }
+            }
+        }
+    }
+
+    // MARK: - Step 4: IDE Integration (optional, skipped if no IDEs)
 
     private var ideIntegrationStep: some View {
         VStack(spacing: 20) {
@@ -227,19 +275,19 @@ struct OnboardingView: View {
 
             if ideExtensionInstalled {
                 primaryButton("Continue") {
-                    nextStep(after: 3)
+                    nextStep(after: 4)
                 }
             } else {
                 primaryButton("Install Extension") {
                     installIDEExtension()
                 }
 
-                skipButton { nextStep(after: 3) }
+                skipButton { nextStep(after: 4) }
             }
         }
     }
 
-    // MARK: - Step 4: Choose Mascot
+    // MARK: - Step 5: Choose Mascot
 
     private var mascotStep: some View {
         VStack(spacing: 20) {
@@ -352,10 +400,23 @@ struct OnboardingView: View {
             UserDefaults.standard.set(true, forKey: "ideExtensionEnabled")
             ExtensionInstaller.triggerPermissionPrompt()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                nextStep(after: 3)
+                nextStep(after: 4)
             }
         } catch {
             ideExtensionError = error.localizedDescription
+        }
+    }
+
+    private func enableAccessibility() {
+        appStore.hotkeyManager.requestAccessibilityPermission()
+        // The system dialog is async — poll briefly for the result
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            accessibilityGranted = AXIsProcessTrusted()
+            if accessibilityGranted {
+                // Also start the hotkey manager now that we have permission
+                appStore.hotkeyManager.start()
+                nextStep(after: 3)
+            }
         }
     }
 

@@ -143,6 +143,7 @@ struct MaskoDesktopApp: App {
                     overlayManager.sessionStore = appStore.sessionStore
                     overlayManager.eventStore = appStore.eventStore
                     overlayManager.pendingPermissionStore = appStore.pendingPermissionStore
+                    overlayManager.hotkeyManager = appStore.hotkeyManager
                     appStore.onEventForOverlay = { [weak overlayManager] event in
                         overlayManager?.handleEvent(event)
                     }

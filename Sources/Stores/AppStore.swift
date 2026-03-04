@@ -10,6 +10,7 @@ final class AppStore {
     let notificationService = NotificationService.shared
     let pendingPermissionStore = PendingPermissionStore()
     let mascotStore = MascotStore()
+    let hotkeyManager = GlobalHotkeyManager()
 
     private(set) var eventProcessor: EventProcessor!
     private(set) var isReady = false
@@ -77,6 +78,53 @@ final class AppStore {
             self?.onRefreshOverlay?()
         }
 
+        // Wire pending permission count → hotkey manager
+        pendingPermissionStore.onPendingCountChange = { [weak self] in
+            guard let self else { return }
+            self.hotkeyManager.hasPendingPermissions = !self.pendingPermissionStore.pending.isEmpty
+        }
+
+        // Wire hotkey manager — ⌘N selects Nth button within topmost card
+        hotkeyManager.onSelectPermission = { [weak self] index in
+            guard let self else { return }
+            guard !self.pendingPermissionStore.pending.isEmpty else { return }
+            if self.hotkeyManager.selectedButtonIndex == index {
+                self.hotkeyManager.selectedButtonIndex = nil
+            } else {
+                self.hotkeyManager.selectedButtonIndex = index
+            }
+        }
+
+        // Wire hotkey manager — ⌘Enter confirms the selected button
+        hotkeyManager.onConfirmPermission = { [weak self] in
+            guard let self else { return }
+            self.hotkeyManager.confirmTrigger += 1
+        }
+
+        // Wire hotkey manager — ⌘Esc dismisses (denies) topmost permission
+        hotkeyManager.onDismissPermission = { [weak self] in
+            guard let self else { return }
+            let reversed = Array(self.pendingPermissionStore.pending.reversed())
+            guard let topPerm = reversed.first else { return }
+            self.pendingPermissionStore.resolve(id: topPerm.id, decision: .deny)
+        }
+
+        // Wire hotkey manager — toggle focus via configurable shortcut
+        // When permissions are pending, ⌘M focuses the terminal (same as terminal button).
+        // When no permissions, toggles the dashboard window.
+        hotkeyManager.onToggleFocus = { [weak self] in
+            guard let self else { return }
+            let reversed = Array(self.pendingPermissionStore.pending.reversed())
+            if let topPerm = reversed.first {
+                IDETerminalFocus.focus(
+                    terminalPid: topPerm.event.terminalPid,
+                    shellPid: topPerm.event.shellPid
+                )
+            } else {
+                self.hotkeyManager.toggleFocus()
+            }
+        }
+
         // Update permission notification with resolution outcome
         pendingPermissionStore.onResolved = { [weak self] event, outcome in
             guard let self else { return }
@@ -100,6 +148,9 @@ final class AppStore {
             print("[masko-desktop] Failed to install hooks: \(error)")
         }
 
+        // Start global hotkey manager (CGEvent tap)
+        hotkeyManager.start()
+
         // Evict cached videos older than 30 days
         VideoCache.shared.evictStaleFiles()
 
@@ -118,6 +169,10 @@ final class AppStore {
             queue: .main
         ) { [weak self] _ in
             self?.sessionStore.reconcileIfNeeded()
+            // Retry hotkey manager if not yet active (user may have just granted Accessibility)
+            if !(self?.hotkeyManager.isActive ?? true) {
+                self?.hotkeyManager.start()
+            }
         }
 
         // Clean up on app termination to avoid zombie NWListener processes
@@ -137,5 +192,6 @@ final class AppStore {
         localServer.stop()
         sessionStore.stopTimers()
         pendingPermissionStore.stopTimers()
+        hotkeyManager.stop()
     }
 }

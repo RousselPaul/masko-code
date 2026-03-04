@@ -41,6 +41,7 @@ final class OverlayManager {
     var sessionStore: SessionStore = SessionStore()
     var eventStore: EventStore = EventStore()
     var pendingPermissionStore: PendingPermissionStore = PendingPermissionStore()
+    var hotkeyManager: GlobalHotkeyManager = GlobalHotkeyManager()
 
     var currentSizePixels: Int {
         get {
@@ -208,25 +209,40 @@ final class OverlayManager {
         // --- Permission panel (smart-positioned, adapts to screen edges) ---
         permissionHUDConfig = PermissionHUDConfig()
         permissionHUDConfig.onContentSizeChange = { [weak self] _ in
-            self?.resizePermissionPanel()
+            self?.syncPermissionPanel()
         }
         let permView = PermissionHUDView(config: permissionHUDConfig)
             .environment(pendingPermissionStore)
+            .environment(hotkeyManager)
 
-        let permWidth: CGFloat = 280
+        let permController = TransparentHostingController(rootView: permView)
+        permController.sizingOptions = []
+
         let statsTop = statsRect.maxY
         let permRect = NSRect(
-            x: mascotRect.midX - permWidth / 2,
+            x: mascotRect.midX - 140,
             y: statsTop + 4,
-            width: permWidth,
+            width: 280,
             height: 200
         )
         let newPermPanel = OverlayPanel(contentRect: permRect)
         newPermPanel.isMovableByWindowBackground = false
-
-        let permController = TransparentHostingController(rootView: permView)
         newPermPanel.contentView = permController.view
         newPermPanel.contentViewController = permController
+
+        // Resize/reposition when permissions change (delay lets SwiftUI render)
+        pendingPermissionStore.onPendingChange = { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self?.syncPermissionPanel()
+            }
+        }
+
+        // Activate app + make permission panel key when a text-input field needs focus
+        pendingPermissionStore.onRequestTextInputFocus = { [weak self] in
+            guard let permPanel = self?.permissionPanel else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            permPanel.makeKey()
+        }
 
         newPermPanel.orderFrontRegardless()
         SkyLightOperator.shared.delegateWindow(newPermPanel)
@@ -556,12 +572,17 @@ final class OverlayManager {
         statsPanel.setFrameOrigin(CGPoint(x: x, y: y))
     }
 
-    /// Smart-position permission panel: try above → right → left → below mascot.
-    private func repositionPermissionPanel() {
+    /// Measure permission content, resize panel, and smart-position it.
+    /// Tries above → right → left → below mascot.
+    private func syncPermissionPanel() {
         guard let panel, let permissionPanel else { return }
+
+        let contentSize = permissionHUDConfig.contentSize
+        if contentSize.height <= 10 { return }
+        let permSize = CGSize(width: max(contentSize.width, 280), height: contentSize.height)
+
         let mascotFrame = panel.frame
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        let permSize = permissionPanel.frame.size
         let gap: CGFloat = 4
         let statsTop = statsPanel?.frame.maxY ?? mascotFrame.maxY
 
@@ -583,7 +604,7 @@ final class OverlayManager {
         else {
             let rightX = mascotFrame.maxX + gap
             if rightX + permSize.width <= screen.maxX {
-                let y = max(screen.minY, min(mascotFrame.midY - permSize.height / 2, screen.maxY - permSize.height))
+                let y = max(screen.minY, min(statsTop - permSize.height, screen.maxY - permSize.height))
                 origin = CGPoint(x: rightX, y: y)
                 tailSide = .left
                 tailPercent = 1.0 - ((mascotFrame.midY - origin.y) / permSize.height)
@@ -592,7 +613,7 @@ final class OverlayManager {
             else {
                 let leftX = mascotFrame.minX - permSize.width - gap
                 if leftX >= screen.minX {
-                    let y = max(screen.minY, min(mascotFrame.midY - permSize.height / 2, screen.maxY - permSize.height))
+                    let y = max(screen.minY, min(statsTop - permSize.height, screen.maxY - permSize.height))
                     origin = CGPoint(x: leftX, y: y)
                     tailSide = .right
                     tailPercent = 1.0 - ((mascotFrame.midY - origin.y) / permSize.height)
@@ -613,27 +634,15 @@ final class OverlayManager {
         // Clamp tail percent
         tailPercent = max(0.15, min(tailPercent, 0.85))
 
-        permissionPanel.setFrameOrigin(origin)
-
-        // Update tail config — @Observable so SwiftUI picks up changes automatically
+        permissionPanel.setFrame(NSRect(origin: origin, size: permSize), display: true)
         permissionHUDConfig.tailSide = tailSide
         permissionHUDConfig.tailPercent = tailPercent
-    }
-
-    /// Resize permission panel to match actual content size, then reposition.
-    private func resizePermissionPanel() {
-        guard let permissionPanel else { return }
-        let newSize = permissionHUDConfig.contentSize
-        let current = permissionPanel.frame.size
-        guard abs(current.width - newSize.width) > 2 || abs(current.height - newSize.height) > 2 else { return }
-        permissionPanel.setContentSize(newSize)
-        repositionPermissionPanel()
     }
 
     /// Reposition all HUD panels.
     private func repositionHUD() {
         repositionStats()
-        repositionPermissionPanel()
+        syncPermissionPanel()
     }
 
     private func savePosition() {
