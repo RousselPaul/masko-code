@@ -78,7 +78,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// When all windows close, go back to menu bar only
     func applicationDidResignActive(_ notification: Notification) {
-        let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
+        // Only count real windows — overlay panels don't count
+        let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey && !($0 is NSPanel) }
         if !hasVisibleWindows {
             NSApp.setActivationPolicy(.accessory)
         }

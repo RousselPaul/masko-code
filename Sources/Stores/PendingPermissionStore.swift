@@ -439,6 +439,17 @@ final class PendingPermissionStore {
         }
     }
 
+    /// Dismiss pending permissions for a specific agent context within a session.
+    /// Matches by sessionId AND agentId so subagent events don't dismiss other agents' permissions.
+    func dismissForAgent(sessionId: String, agentId: String?) {
+        let matching = pending.filter {
+            $0.event.sessionId == sessionId && $0.event.agentId == agentId
+        }
+        for perm in matching {
+            silentRemove(id: perm.id)
+        }
+    }
+
     /// Remove a permission silently (answered from terminal or connection closed)
     private func silentRemove(id: UUID) {
         guard let index = pending.firstIndex(where: { $0.id == id }) else { return }
